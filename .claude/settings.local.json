@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --yes)",
+      "Bash(npm init:*)",
+      "Bash(npm pkg set:*)",
+      "Bash(npm install:*)",
+      "Bash(npx shadcn@latest init:*)",
+      "Bash(npx shadcn@latest add button card input label textarea select checkbox dialog dropdown-menu tabs table badge avatar separator sheet toast form popover calendar command scroll-area --overwrite)",
+      "Bash(npx shadcn@latest add button card input label textarea select checkbox dialog dropdown-menu tabs table badge avatar separator sheet sonner form popover calendar command scroll-area progress slider switch alert-dialog tooltip --overwrite)",
+      "Bash(npm run build:*)",
+      "Bash(npm run dev:*)",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
