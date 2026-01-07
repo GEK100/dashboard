@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server"
+import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -24,6 +24,7 @@ type ProfileWithCompany = UserProfile & { companies: Company | null }
 
 export default async function DashboardPage() {
   const supabase = await createClient()
+  const serviceClient = await createServiceClient()
 
   const {
     data: { user },
@@ -33,8 +34,8 @@ export default async function DashboardPage() {
     redirect("/login")
   }
 
-  // Fetch user profile with company
-  const { data: profileData } = await supabase
+  // Fetch user profile with company using service client (bypasses RLS)
+  const { data: profileData } = await serviceClient
     .from("user_profiles")
     .select("*, companies(*)")
     .eq("id", user.id)
@@ -42,8 +43,13 @@ export default async function DashboardPage() {
 
   const profile = profileData as ProfileWithCompany | null
 
-  if (!profile || !profile.company_id) {
+  if (!profile) {
     redirect("/login")
+  }
+
+  // If user doesn't have a company, redirect to setup
+  if (!profile.company_id) {
+    redirect("/setup")
   }
 
   // Fetch projects based on user role
@@ -136,62 +142,100 @@ export default async function DashboardPage() {
   const upcomingMilestones = upcomingMilestonesData as MilestoneWithProject[] | null
 
   return (
-    <div className="space-y-8">
-      {/* Page Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground">
-          Welcome back, {profile.full_name.split(" ")[0]}
-        </p>
+    <div className="space-y-8 animate-fade-in">
+      {/* Dashboard Header with Gradient */}
+      <div className="bg-gradient-to-r from-slate-800 to-slate-700 rounded-xl p-6 text-white shadow-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-white/10 rounded-xl">
+              <Building2 className="h-10 w-10 text-emerald-400" />
+            </div>
+            <div>
+              <h1 className="text-h2 font-semibold text-white">
+                Welcome back, {profile.full_name.split(" ")[0]}
+              </h1>
+              <p className="text-body-sm text-slate-300 mt-1">
+                {profile.companies?.name || "Your Dashboard"} • {activeProjects.length} active projects
+              </p>
+            </div>
+          </div>
+          {(overdueRfis && overdueRfis.length > 0) || (overdueBlockers && overdueBlockers.length > 0) ? (
+            <div className="hidden sm:block bg-red-500/20 px-4 py-3 rounded-lg border border-red-500/30">
+              <div className="text-metric-sm font-semibold text-red-400">
+                {(overdueRfis?.length || 0) + (overdueBlockers?.length || 0)}
+              </div>
+              <div className="text-caption text-slate-300 uppercase tracking-wide">Overdue Items</div>
+            </div>
+          ) : (
+            <div className="hidden sm:block bg-emerald-500/20 px-4 py-3 rounded-lg border border-emerald-500/30">
+              <div className="text-metric-sm font-semibold text-emerald-400">0</div>
+              <div className="text-caption text-slate-300 uppercase tracking-wide">Issues</div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Portfolio Health Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Projects</CardTitle>
-            <Building2 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{activeProjects.length}</div>
-            <p className="text-xs text-muted-foreground">
-              {projects?.filter((p) => p.status !== "live").length || 0} completed
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">On Track</CardTitle>
-            <CheckCircle className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {activeProjects.length}
+      <div className="grid-responsive">
+        <Card className="hover-lift">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-caption text-muted-foreground uppercase tracking-wide">Active Projects</p>
+                <p className="text-metric text-foreground mt-1">{activeProjects.length}</p>
+                <p className="text-body-sm text-muted-foreground mt-2">
+                  {projects?.filter((p) => p.status !== "live").length || 0} completed
+                </p>
+              </div>
+              <div className="p-3 bg-emerald-500/10 rounded-xl">
+                <Building2 className="h-8 w-8 text-emerald-500" />
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground">projects on schedule</p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">At Risk</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-600">0</div>
-            <p className="text-xs text-muted-foreground">projects need attention</p>
+        <Card className="hover-lift">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-caption text-muted-foreground uppercase tracking-wide">On Track</p>
+                <p className="text-metric text-emerald-500 mt-1">{activeProjects.length}</p>
+                <p className="text-body-sm text-emerald-600 mt-2">projects on schedule</p>
+              </div>
+              <div className="p-3 bg-emerald-500/10 rounded-xl">
+                <CheckCircle className="h-8 w-8 text-emerald-500" />
+              </div>
+            </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Critical</CardTitle>
-            <AlertCircle className="h-4 w-4 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">0</div>
-            <p className="text-xs text-muted-foreground">projects at risk</p>
+        <Card className="hover-lift">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-caption text-muted-foreground uppercase tracking-wide">At Risk</p>
+                <p className="text-metric text-amber-500 mt-1">0</p>
+                <p className="text-body-sm text-muted-foreground mt-2">need attention</p>
+              </div>
+              <div className="p-3 bg-amber-500/10 rounded-xl">
+                <AlertTriangle className="h-8 w-8 text-amber-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="hover-lift">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-caption text-muted-foreground uppercase tracking-wide">Critical</p>
+                <p className="text-metric text-red-500 mt-1">0</p>
+                <p className="text-body-sm text-muted-foreground mt-2">urgent issues</p>
+              </div>
+              <div className="p-3 bg-red-500/10 rounded-xl">
+                <AlertCircle className="h-8 w-8 text-red-500" />
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -201,13 +245,15 @@ export default async function DashboardPage() {
         (pendingRams && pendingRams.length > 0) ||
         (overdueBlockers && overdueBlockers.length > 0) ||
         (pendingAttendance?.count && pendingAttendance.count > 0)) && (
-        <Card className="border-amber-200 bg-amber-50/50">
+        <Card className="border-amber-500/50 bg-amber-950/20 animate-slide-in-up">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-amber-800">
-              <AlertTriangle className="h-5 w-5" />
-              Attention Required
+            <CardTitle className="flex items-center gap-2 text-amber-400">
+              <div className="p-2 bg-amber-500/20 rounded-lg">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <span className="text-h3">Attention Required</span>
             </CardTitle>
-            <CardDescription className="text-amber-700">
+            <CardDescription className="text-amber-300/70 text-body-sm">
               Items that need your immediate attention
             </CardDescription>
           </CardHeader>
@@ -216,20 +262,22 @@ export default async function DashboardPage() {
               <Link
                 key={rfi.id}
                 href={`/projects/${rfi.project_id}/rfi/${rfi.id}`}
-                className="flex items-center justify-between rounded-lg border border-red-200 bg-white p-3 hover:bg-red-50 transition-colors"
+                className="flex items-center justify-between rounded-lg border border-red-500/30 bg-red-950/30 p-4 hover:bg-red-950/50 transition-all hover-lift"
               >
                 <div className="flex items-center gap-3">
-                  <FileQuestion className="h-4 w-4 text-red-500" />
+                  <div className="p-2 bg-red-500/20 rounded-lg">
+                    <FileQuestion className="h-5 w-5 text-red-400" />
+                  </div>
                   <div>
-                    <p className="font-medium text-sm">
+                    <p className="text-body-sm font-medium">
                       RFI-{String(rfi.rfi_number).padStart(3, "0")} overdue
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-caption text-muted-foreground">
                       {(rfi.projects as { name: string })?.name} - {rfi.subject}
                     </p>
                   </div>
                 </div>
-                <Badge variant="destructive">Overdue</Badge>
+                <span className="status-rejected">Overdue</span>
               </Link>
             ))}
 
@@ -237,19 +285,21 @@ export default async function DashboardPage() {
               <Link
                 key={rams.id}
                 href={`/projects/${rams.project_id}/rams`}
-                className="flex items-center justify-between rounded-lg border border-blue-200 bg-white p-3 hover:bg-blue-50 transition-colors"
+                className="flex items-center justify-between rounded-lg border border-blue-500/30 bg-blue-950/30 p-4 hover:bg-blue-950/50 transition-all hover-lift"
               >
                 <div className="flex items-center gap-3">
-                  <FileCheck className="h-4 w-4 text-blue-500" />
+                  <div className="p-2 bg-blue-500/20 rounded-lg">
+                    <FileCheck className="h-5 w-5 text-blue-400" />
+                  </div>
                   <div>
-                    <p className="font-medium text-sm">RAMS awaiting review</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-body-sm font-medium">RAMS awaiting review</p>
+                    <p className="text-caption text-muted-foreground">
                       {(rams.projects as { name: string })?.name} -{" "}
                       {rams.subcontractor_company}
                     </p>
                   </div>
                 </div>
-                <Badge>Review</Badge>
+                <span className="status-assigned">Review</span>
               </Link>
             ))}
 
@@ -257,41 +307,41 @@ export default async function DashboardPage() {
               <Link
                 key={blocker.id}
                 href={`/projects/${blocker.project_id}/blockers/${blocker.id}`}
-                className="flex items-center justify-between rounded-lg border border-amber-200 bg-white p-3 hover:bg-amber-50 transition-colors"
+                className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-950/30 p-4 hover:bg-amber-950/50 transition-all hover-lift"
               >
                 <div className="flex items-center gap-3">
-                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  <div className="p-2 bg-amber-500/20 rounded-lg">
+                    <AlertTriangle className="h-5 w-5 text-amber-400" />
+                  </div>
                   <div>
-                    <p className="font-medium text-sm">
+                    <p className="text-body-sm font-medium">
                       BLK-{String(blocker.blocker_number).padStart(3, "0")} overdue
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-caption text-muted-foreground">
                       {(blocker.projects as { name: string })?.name} - {blocker.title}
                     </p>
                   </div>
                 </div>
-                <Badge variant="outline" className="border-amber-500 text-amber-700">
-                  Overdue
-                </Badge>
+                <span className="status-pending">Overdue</span>
               </Link>
             ))}
 
             {pendingAttendance?.count && pendingAttendance.count > 0 && (
               <Link
                 href="/projects"
-                className="flex items-center justify-between rounded-lg border bg-white p-3 hover:bg-muted transition-colors"
+                className="flex items-center justify-between rounded-lg border border-muted bg-card p-4 hover:bg-muted transition-all hover-lift"
               >
                 <div className="flex items-center gap-3">
-                  <Users className="h-4 w-4 text-muted-foreground" />
+                  <div className="p-2 bg-muted rounded-lg">
+                    <Users className="h-5 w-5 text-muted-foreground" />
+                  </div>
                   <div>
-                    <p className="font-medium text-sm">
+                    <p className="text-body-sm font-medium">
                       {pendingAttendance.count} attendance records pending verification
                     </p>
                   </div>
                 </div>
-                <Button variant="outline" size="sm">
-                  Verify
-                </Button>
+                <button className="btn btn-outline-emerald btn-sm">Verify</button>
               </Link>
             )}
           </CardContent>
@@ -300,62 +350,59 @@ export default async function DashboardPage() {
 
       {/* Project Summary Cards */}
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold">Your Projects</h2>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-h2 text-foreground">Your Projects</h2>
           <Link href="/projects">
-            <Button variant="outline" size="sm">
+            <button className="btn btn-outline btn-sm">
               View All
-              <ExternalLink className="ml-2 h-3 w-3" />
-            </Button>
+              <ExternalLink className="h-4 w-4" />
+            </button>
           </Link>
         </div>
 
         {activeProjects.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Building2 className="h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="font-semibold text-lg mb-2">No active projects</h3>
-              <p className="text-muted-foreground text-center mb-4">
+          <Card className="animate-fade-in">
+            <CardContent className="flex flex-col items-center justify-center py-16">
+              <div className="p-4 bg-muted rounded-2xl mb-6">
+                <Building2 className="h-12 w-12 text-muted-foreground" />
+              </div>
+              <h3 className="text-h3 mb-2">No active projects</h3>
+              <p className="text-body-sm text-muted-foreground text-center mb-6 max-w-sm">
                 {profile.role === "admin"
-                  ? "Create your first project to get started"
+                  ? "Create your first project to get started tracking construction activities"
                   : "You haven't been assigned to any projects yet"}
               </p>
               {profile.role === "admin" && (
                 <Link href="/projects/new">
-                  <Button>Create Project</Button>
+                  <button className="btn btn-primary">Create Project</button>
                 </Link>
               )}
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {activeProjects.slice(0, 6).map((project) => (
+          <div className="grid-responsive-3">
+            {activeProjects.slice(0, 6).map((project, index) => (
               <Link key={project.id} href={`/projects/${project.id}`}>
-                <Card className="hover:shadow-md transition-shadow cursor-pointer h-full">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <CardTitle className="text-lg">{project.name}</CardTitle>
-                        <CardDescription>{project.client_name}</CardDescription>
+                <Card className="hover-lift cursor-pointer h-full" style={{ animationDelay: `${index * 50}ms` }}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <CardTitle className="text-h3 truncate">{project.name}</CardTitle>
+                        <CardDescription className="text-body-sm mt-1">{project.client_name}</CardDescription>
                       </div>
-                      <Badge
-                        variant="outline"
-                        className="border-green-500 text-green-700"
-                      >
-                        On Track
-                      </Badge>
+                      <span className="status-verified shrink-0">On Track</span>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div>
-                      <div className="flex justify-between text-sm mb-1">
+                      <div className="flex justify-between text-body-sm mb-2">
                         <span className="text-muted-foreground">Progress</span>
-                        <span className="font-medium">0%</span>
+                        <span className="font-medium text-emerald-500">0%</span>
                       </div>
                       <Progress value={0} className="h-2" />
                     </div>
 
-                    <div className="flex justify-between text-sm">
+                    <div className="flex justify-between text-body-sm">
                       <span className="text-muted-foreground">Target Completion</span>
                       <span className="font-medium">
                         {project.target_completion
@@ -364,14 +411,15 @@ export default async function DashboardPage() {
                       </span>
                     </div>
 
-                    <div className="flex gap-4 text-xs text-muted-foreground">
-                      <span>
-                        {(project.rfis as { count: number }[])?.[0]?.count || 0} RFIs
-                      </span>
-                      <span>
-                        {(project.blockers as { count: number }[])?.[0]?.count || 0}{" "}
-                        Blockers
-                      </span>
+                    <div className="flex gap-4 pt-2 border-t border-border">
+                      <div className="flex items-center gap-1.5 text-caption text-muted-foreground">
+                        <FileQuestion className="h-4 w-4" />
+                        <span>{(project.rfis as { count: number }[])?.[0]?.count || 0} RFIs</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-caption text-muted-foreground">
+                        <AlertTriangle className="h-4 w-4" />
+                        <span>{(project.blockers as { count: number }[])?.[0]?.count || 0} Blockers</span>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -383,11 +431,13 @@ export default async function DashboardPage() {
 
       {/* Upcoming This Week */}
       {upcomingMilestones && upcomingMilestones.length > 0 && (
-        <Card>
+        <Card className="animate-slide-in-up">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5" />
-              Upcoming This Week
+              <div className="p-2 bg-emerald-500/10 rounded-lg">
+                <Calendar className="h-5 w-5 text-emerald-500" />
+              </div>
+              <span className="text-h3">Upcoming This Week</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -395,17 +445,17 @@ export default async function DashboardPage() {
               {upcomingMilestones.map((milestone) => (
                 <div
                   key={milestone.id}
-                  className="flex items-center justify-between"
+                  className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
                 >
                   <div>
-                    <p className="font-medium">{milestone.name}</p>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-body-sm font-medium">{milestone.name}</p>
+                    <p className="text-caption text-muted-foreground">
                       {(milestone.projects as { name: string })?.name}
                     </p>
                   </div>
-                  <Badge variant="outline">
+                  <span className="status-assigned">
                     {format(new Date(milestone.target_date), "d MMM")}
-                  </Badge>
+                  </span>
                 </div>
               ))}
             </div>
