@@ -137,41 +137,33 @@ function RamsUploadForm() {
         .from("project-files")
         .getPublicUrl(fileName)
 
-      // Get project_id from package
-      const { data: pkg } = await supabase
-        .from("rams_packages")
-        .select("project_id")
-        .eq("id", packageInfo.id)
-        .single()
+      // Submit via secure API route
+      const response = await fetch("/api/rams/submit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          token: token,
+          company_name: formData.company_name,
+          contact_name: formData.contact_name,
+          contact_email: formData.contact_email,
+          document_url: publicUrl,
+          document_name: formData.file.name,
+        }),
+      })
 
-      if (!pkg) throw new Error("Package not found")
+      const result = await response.json()
 
-      const projectId = (pkg as { project_id: string }).project_id
-
-      // Create submission
-      await supabase.from("rams_submissions").insert({
-        project_id: projectId,
-        package_id: packageInfo.id,
-        package_name: packageInfo.package_name,
-        subcontractor_company: formData.company_name,
-        document_url: publicUrl,
-        document_name: formData.file.name,
-        submitted_by_name: formData.contact_name,
-        submitted_by_email: formData.contact_email,
-        pm_status: "pending",
-      } as never)
-
-      // Update package status
-      await supabase
-        .from("rams_packages")
-        .update({ status: "submitted" } as never)
-        .eq("id", packageInfo.id)
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to submit RAMS")
+      }
 
       setSubmitted(true)
       toast.success("RAMS submitted successfully")
     } catch (error) {
       console.error("Error submitting RAMS:", error)
-      toast.error("Failed to submit RAMS")
+      toast.error(error instanceof Error ? error.message : "Failed to submit RAMS")
     } finally {
       setUploading(false)
     }

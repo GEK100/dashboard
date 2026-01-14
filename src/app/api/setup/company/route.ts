@@ -1,5 +1,15 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { z } from "zod"
+import { checkRateLimit } from "@/lib/security"
+
+// Validation schema for company setup
+const SetupCompanySchema = z.object({
+  companyName: z.string()
+    .min(2, "Company name must be at least 2 characters")
+    .max(255, "Company name must be less than 255 characters")
+    .transform(val => val.trim()),
+})
 
 export async function POST(request: Request) {
   try {
@@ -10,17 +20,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const body = await request.json()
-    const { companyName } = body
-
-    if (!companyName || typeof companyName !== "string") {
-      return NextResponse.json({ error: "Company name is required" }, { status: 400 })
+    // Rate limiting - prevent mass company creation
+    const rateLimit = checkRateLimit(`setup:${user.id}`, 3, 3600000) // 3 attempts per hour
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded. Please try again later.", resetIn: rateLimit.resetIn },
+        { status: 429 }
+      )
     }
 
-    const sanitizedName = companyName.trim().substring(0, 255)
-    if (sanitizedName.length < 2) {
-      return NextResponse.json({ error: "Company name must be at least 2 characters" }, { status: 400 })
+    const rawBody = await request.json()
+
+    // Validate input
+    const parseResult = SetupCompanySchema.safeParse(rawBody)
+    if (!parseResult.success) {
+      const firstError = parseResult.error.issues[0]
+      return NextResponse.json(
+        { error: firstError?.message || "Invalid company name" },
+        { status: 400 }
+      )
     }
+
+    const sanitizedName = parseResult.data.companyName
 
     // Use service client to bypass RLS
     const serviceClient = await createServiceClient()

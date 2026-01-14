@@ -29,10 +29,32 @@ export function Header({ user, company }: HeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const handleSignOut = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push("/login")
-    router.refresh()
+    try {
+      // Use POST to logout endpoint for CSRF protection
+      const response = await fetch("/logout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+
+      if (response.ok) {
+        router.push("/login")
+        router.refresh()
+      } else {
+        // Fallback to client-side signout
+        const supabase = createClient()
+        await supabase.auth.signOut()
+        router.push("/login")
+        router.refresh()
+      }
+    } catch {
+      // Fallback to client-side signout
+      const supabase = createClient()
+      await supabase.auth.signOut()
+      router.push("/login")
+      router.refresh()
+    }
   }
 
   const getInitials = (name: string) => {
@@ -56,13 +78,7 @@ export function Header({ user, company }: HeaderProps) {
   }
 
   return (
-    <header
-      className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
-      style={{
-        '--company-primary': company?.primary_color || '#1B4F72',
-        '--company-secondary': company?.secondary_color || '#2874A6',
-      } as React.CSSProperties}
-    >
+    <header className="sticky top-0 z-50 w-full border-b glass">
       <div className="container flex h-16 items-center justify-between">
         {/* Logo / Company Name */}
         <div className="flex items-center gap-4">
@@ -75,8 +91,8 @@ export function Header({ user, company }: HeaderProps) {
               />
             ) : (
               <div className="flex items-center gap-2">
-                <Building2 className="h-6 w-6" style={{ color: company?.primary_color || '#1B4F72' }} />
-                <span className="font-semibold text-lg hidden sm:inline">
+                <Building2 className="h-6 w-6 text-primary" />
+                <span className="font-semibold text-lg hidden sm:inline text-gradient-primary">
                   {company?.name || "Ictus Flow"}
                 </span>
               </div>

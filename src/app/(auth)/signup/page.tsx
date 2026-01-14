@@ -3,12 +3,12 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Loader2, CheckCircle } from "lucide-react"
+import { validatePassword } from "@/lib/security"
 
 export default function SignupPage() {
   const router = useRouter()
@@ -31,14 +31,6 @@ export default function SignupPage() {
     }))
   }
 
-  const generateSlug = (name: string): string => {
-    return name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .substring(0, 50)
-  }
-
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -51,44 +43,40 @@ export default function SignupPage() {
       return
     }
 
-    if (formData.password.length < 8) {
-      setError("Password must be at least 8 characters")
+    // Validate password strength (client-side check)
+    const passwordError = validatePassword(formData.password)
+    if (passwordError) {
+      setError(passwordError)
       setLoading(false)
       return
     }
 
-    const supabase = createClient()
+    try {
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          fullName: formData.fullName,
+          companyName: formData.companyName,
+        }),
+      })
 
-    // 1. Create the auth user
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: formData.email,
-      password: formData.password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-        data: {
-          full_name: formData.fullName,
-          company_name: formData.companyName,
-        },
-      },
-    })
+      const result = await response.json()
 
-    if (authError) {
-      setError(authError.message)
+      if (!response.ok) {
+        setError(result.error || "Signup failed")
+        setLoading(false)
+        return
+      }
+
+      setSuccess(true)
       setLoading(false)
-      return
-    }
-
-    if (!authData.user) {
-      setError("Failed to create account")
+    } catch {
+      setError("An unexpected error occurred")
       setLoading(false)
-      return
     }
-
-    // Note: The company and user_profile will be created by a database trigger
-    // or we can create them here if the user is confirmed
-
-    setSuccess(true)
-    setLoading(false)
   }
 
   if (success) {
@@ -185,6 +173,9 @@ export default function SignupPage() {
               required
               autoComplete="new-password"
             />
+            <p className="text-xs text-muted-foreground">
+              Must include uppercase, lowercase, and number
+            </p>
           </div>
 
           <div className="space-y-2">

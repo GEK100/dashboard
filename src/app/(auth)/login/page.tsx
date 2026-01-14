@@ -3,18 +3,18 @@
 import { useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Loader2, Mail } from "lucide-react"
+import { validateRedirectUrl } from "@/lib/security"
 
 function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const redirectTo = searchParams.get("redirectTo") || "/dashboard"
+  const redirectTo = validateRedirectUrl(searchParams.get("redirectTo"))
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -29,21 +29,27 @@ function LoginForm() {
     setLoading(true)
     setError(null)
 
-    const supabase = createClient()
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      })
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+      const result = await response.json()
 
-    if (error) {
-      setError(error.message)
+      if (!response.ok) {
+        setError(result.error || "Login failed")
+        setLoading(false)
+        return
+      }
+
+      router.push(redirectTo)
+      router.refresh()
+    } catch {
+      setError("An unexpected error occurred")
       setLoading(false)
-      return
     }
-
-    router.push(redirectTo)
-    router.refresh()
   }
 
   const handleMagicLink = async () => {
@@ -55,23 +61,27 @@ function LoginForm() {
     setMagicLinkLoading(true)
     setError(null)
 
-    const supabase = createClient()
+    try {
+      const response = await fetch("/api/auth/magic-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, redirectTo }),
+      })
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?redirectTo=${encodeURIComponent(redirectTo)}`,
-      },
-    })
+      const result = await response.json()
 
-    if (error) {
-      setError(error.message)
+      if (!response.ok) {
+        setError(result.error || "Failed to send login link")
+        setMagicLinkLoading(false)
+        return
+      }
+
+      setMagicLinkSent(true)
       setMagicLinkLoading(false)
-      return
+    } catch {
+      setError("An unexpected error occurred")
+      setMagicLinkLoading(false)
     }
-
-    setMagicLinkSent(true)
-    setMagicLinkLoading(false)
   }
 
   if (magicLinkSent) {

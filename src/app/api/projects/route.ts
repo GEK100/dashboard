@@ -1,5 +1,38 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { z } from "zod"
+import { checkRateLimit } from "@/lib/security"
+
+// Validation schema for project creation
+const CreateProjectSchema = z.object({
+  name: z.string().min(1, "Project name is required").max(255),
+  reference: z.string().max(100).optional().nullable(),
+  address: z.string().max(500).optional().nullable(),
+  postcode: z.string().max(20).optional().nullable(),
+  start_date: z.string().optional().nullable(),
+  target_completion: z.string().optional().nullable(),
+  contract_value: z.union([z.string(), z.number()]).optional().nullable(),
+  client_name: z.string().max(255).optional().nullable(),
+  client_contact_name: z.string().max(255).optional().nullable(),
+  client_contact_email: z.string().email().max(255).optional().nullable().or(z.literal("")),
+  client_sector: z.string().max(100).optional().nullable(),
+  project_type: z.string().max(100).optional().nullable(),
+  building_type: z.string().max(100).optional().nullable(),
+  rfi_response_days: z.number().int().min(1).max(90).optional(),
+  warning_threshold_days: z.number().int().min(1).max(30).optional(),
+  client_portal_enabled: z.boolean().optional(),
+  // Risk profile fields
+  occupied_building: z.boolean().optional(),
+  working_at_height: z.boolean().optional(),
+  hot_works: z.boolean().optional(),
+  live_services: z.boolean().optional(),
+  asbestos_presence: z.boolean().optional(),
+  confined_spaces: z.boolean().optional(),
+  public_interface: z.boolean().optional(),
+  manual_handling: z.boolean().optional(),
+  hazardous_substances: z.boolean().optional(),
+  lifting_operations: z.boolean().optional(),
+})
 
 export async function POST(request: Request) {
   try {
@@ -10,7 +43,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const body = await request.json()
+    // Rate limiting
+    const rateLimit = checkRateLimit(`projects:${user.id}`, 10, 60000)
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded", resetIn: rateLimit.resetIn },
+        { status: 429 }
+      )
+    }
+
+    const rawBody = await request.json()
+
+    // Validate input
+    const parseResult = CreateProjectSchema.safeParse(rawBody)
+    if (!parseResult.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parseResult.error.flatten().fieldErrors },
+        { status: 400 }
+      )
+    }
+
+    const body = parseResult.data
 
     // Use service client to get profile (bypasses RLS)
     const serviceClient = await createServiceClient()
@@ -42,7 +95,7 @@ export async function POST(request: Request) {
         postcode: body.postcode || null,
         start_date: body.start_date || null,
         target_completion: body.target_completion || null,
-        contract_value: body.contract_value ? parseFloat(body.contract_value) : null,
+        contract_value: body.contract_value ? (typeof body.contract_value === 'number' ? body.contract_value : parseFloat(body.contract_value)) : null,
         client_name: body.client_name || null,
         client_contact_name: body.client_contact_name || null,
         client_contact_email: body.client_contact_email || null,
@@ -63,13 +116,10 @@ export async function POST(request: Request) {
 
     // Create risk profile if provided
     if (project) {
-      const riskFields = [
-        'occupied_building', 'working_at_height', 'hot_works', 'live_services',
-        'asbestos_presence', 'confined_spaces', 'public_interface', 'manual_handling',
-        'hazardous_substances', 'lifting_operations'
-      ]
-
-      const hasRisks = riskFields.some(field => body[field] === true)
+      const hasRisks = body.occupied_building || body.working_at_height || body.hot_works ||
+        body.live_services || body.asbestos_presence || body.confined_spaces ||
+        body.public_interface || body.manual_handling || body.hazardous_substances ||
+        body.lifting_operations
 
       if (hasRisks) {
         await serviceClient
