@@ -62,10 +62,54 @@ function RamsReviewForm() {
   const [showApproveDialog, setShowApproveDialog] = useState(false)
   const [showRejectDialog, setShowRejectDialog] = useState(false)
   const [comments, setComments] = useState("")
+  const [authorized, setAuthorized] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
 
   useEffect(() => {
-    const fetchSubmission = async () => {
+    const checkAuthorizationAndFetch = async () => {
       const supabase = createClient()
+
+      // First, check if user has permission to review RAMS
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push("/login")
+        return
+      }
+
+      // Check user's role on this project (must be pm or hs)
+      const { data: projectRoleData } = await supabase
+        .from("project_users")
+        .select("role")
+        .eq("project_id", projectId)
+        .eq("user_id", user.id)
+        .single()
+
+      const projectRole = projectRoleData as { role: string } | null
+
+      // Also check if user is admin/director at company level
+      const { data: userProfileData } = await supabase
+        .from("user_profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single()
+
+      const userProfile = userProfileData as { role: string } | null
+
+      const canReview =
+        projectRole?.role === "pm" ||
+        projectRole?.role === "hs" ||
+        userProfile?.role === "admin" ||
+        userProfile?.role === "director"
+
+      if (!canReview) {
+        setAuthChecked(true)
+        setAuthorized(false)
+        setLoading(false)
+        return
+      }
+
+      setAuthorized(true)
+      setAuthChecked(true)
 
       const { data } = await supabase
         .from("rams_submissions")
@@ -126,8 +170,8 @@ function RamsReviewForm() {
       setLoading(false)
     }
 
-    fetchSubmission()
-  }, [submissionId])
+    checkAuthorizationAndFetch()
+  }, [submissionId, projectId, router])
 
   const handleApprove = async () => {
     if (!submission) return
@@ -219,6 +263,26 @@ function RamsReviewForm() {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
         <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    )
+  }
+
+  // Authorization check - show access denied if user doesn't have permission
+  if (authChecked && !authorized) {
+    return (
+      <div className="max-w-2xl mx-auto py-8 px-4">
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <XCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <h2 className="text-xl font-bold mb-2">Access Denied</h2>
+            <p className="text-muted-foreground mb-4">
+              You don&apos;t have permission to review RAMS submissions. Only Project Managers and Health & Safety managers can review RAMS.
+            </p>
+            <Link href={`/projects/${projectId}/rams`}>
+              <Button>Back to RAMS</Button>
+            </Link>
+          </CardContent>
+        </Card>
       </div>
     )
   }

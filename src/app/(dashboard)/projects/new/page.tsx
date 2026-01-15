@@ -124,86 +124,23 @@ export default function NewProjectPage() {
     setLoading(true)
 
     try {
-      const supabase = createClient()
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      })
 
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("Not authenticated")
+      const data = await response.json()
 
-      // Get user's company
-      const { data: profileData } = await supabase
-        .from("user_profiles")
-        .select("company_id")
-        .eq("id", user.id)
-        .single()
-
-      const profile = profileData as { company_id: string | null } | null
-      if (!profile?.company_id) throw new Error("No company found")
-
-      // Create project
-      const { data: project, error: projectError } = await supabase
-        .from("projects")
-        .insert({
-          company_id: profile.company_id,
-          name: formData.name,
-          reference: formData.reference || null,
-          address: formData.address || null,
-          postcode: formData.postcode || null,
-          start_date: formData.start_date || null,
-          target_completion: formData.target_completion || null,
-          contract_value: formData.contract_value ? parseFloat(formData.contract_value) : null,
-          client_name: formData.client_name || null,
-          client_contact_name: formData.client_contact_name || null,
-          client_contact_email: formData.client_contact_email || null,
-          client_sector: formData.client_sector || null,
-          project_type: formData.project_type || null,
-          building_type: formData.building_type || null,
-          rfi_response_days: formData.rfi_response_days,
-          warning_threshold_days: formData.warning_threshold_days,
-          created_by: user.id,
-        } as never)
-        .select()
-        .single()
-
-      if (projectError) throw projectError
-
-      const projectData = project as { id: string }
-
-      // Create risk profile
-      await supabase.from("project_risk_profiles").insert({
-        project_id: projectData.id,
-        occupied_building: formData.occupied_building,
-        working_at_height: formData.working_at_height,
-        hot_works: formData.hot_works,
-        live_services: formData.live_services,
-        asbestos_presence: formData.asbestos_presence,
-        confined_spaces: formData.confined_spaces,
-        public_interface: formData.public_interface,
-        manual_handling: formData.manual_handling,
-        hazardous_substances: formData.hazardous_substances,
-        lifting_operations: formData.lifting_operations,
-      } as never)
-
-      // Create client portal settings if enabled
-      if (formData.client_portal_enabled) {
-        await supabase.from("client_portal_settings").insert({
-          project_id: projectData.id,
-        } as never)
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to create project")
       }
 
-      // Add current user as PM
-      await supabase.from("project_users").insert({
-        project_id: projectData.id,
-        user_id: user.id,
-        role: "pm",
-        assigned_by: user.id,
-      } as never)
-
       toast.success("Project created successfully")
-      router.push(`/projects/${projectData.id}`)
+      router.push(`/projects/${data.project.id}`)
     } catch (error) {
       console.error("Error creating project:", error)
-      toast.error("Failed to create project")
+      toast.error(error instanceof Error ? error.message : "Failed to create project")
     } finally {
       setLoading(false)
     }

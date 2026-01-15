@@ -39,8 +39,12 @@ export default async function ProjectsPage() {
 
   const profile = profileData as UserProfile | null
 
-  if (!profile || !profile.company_id) {
+  if (!profile) {
     redirect("/login")
+  }
+
+  if (!profile.company_id) {
+    redirect("/setup")
   }
 
   // Fetch projects based on user role

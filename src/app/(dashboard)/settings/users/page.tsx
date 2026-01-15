@@ -59,8 +59,12 @@ export default async function UsersPage() {
 
   const profile = profileData as UserProfile | null
 
-  if (!profile || !profile.company_id) {
+  if (!profile) {
     redirect("/login")
+  }
+
+  if (!profile.company_id) {
+    redirect("/setup")
   }
 
   // Only admins can access settings

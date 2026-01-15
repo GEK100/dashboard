@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import { format } from "date-fns"
 import type { UserProfile, LessonLearnt, LessonCategory, LessonType } from "@/types/database"
+import { sanitizeSearchInput } from "@/lib/security"
 
 interface LessonsPageProps {
   searchParams: Promise<{ category?: string; search?: string }>
@@ -42,8 +43,12 @@ export default async function LessonsPage({ searchParams }: LessonsPageProps) {
 
   const profile = profileData as (UserProfile & { companies: { name: string } }) | null
 
-  if (!profile || !profile.company_id) {
+  if (!profile) {
     redirect("/login")
+  }
+
+  if (!profile.company_id) {
+    redirect("/setup")
   }
 
   const companyId = profile.company_id
@@ -64,7 +69,10 @@ export default async function LessonsPage({ searchParams }: LessonsPageProps) {
   }
 
   if (search) {
-    query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`)
+    const sanitizedSearch = sanitizeSearchInput(search)
+    if (sanitizedSearch) {
+      query = query.or(`title.ilike.%${sanitizedSearch}%,description.ilike.%${sanitizedSearch}%`)
+    }
   }
 
   const { data: lessonsData } = await query.limit(50)

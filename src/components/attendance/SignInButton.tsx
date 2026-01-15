@@ -124,14 +124,26 @@ export function SignInButton({
         return
       }
 
+      // Calculate if within geofence for verification status
+      let isWithinGeofence = true
+      if (hasGeofence && projectLatitude !== null && projectLongitude !== null) {
+        const distance = getDistanceFromLatLonInMeters(
+          latitude,
+          longitude,
+          projectLatitude,
+          projectLongitude
+        )
+        isWithinGeofence = distance <= geofenceRadius
+      }
+
       const { error } = await supabase.from("site_attendance").insert({
         project_id: projectId,
         user_id: user.id,
         sign_in_time: new Date().toISOString(),
         sign_in_latitude: latitude,
         sign_in_longitude: longitude,
-        sign_in_verified: hasGeofence,
-        verification_status: "verified",
+        sign_in_verified: isWithinGeofence,
+        verification_status: isWithinGeofence ? "verified" : "flagged",
         induction_valid: true, // TODO: Check actual induction status
         rams_valid: true, // TODO: Check actual RAMS status
       } as never)
