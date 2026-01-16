@@ -1,7 +1,18 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { checkRateLimit, validatePassword } from "@/lib/security"
+import { checkRateLimitSync, validatePassword } from "@/lib/security"
 import { z } from "zod"
+
+// Handle CORS preflight
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    },
+  })
+}
 
 const SignupSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -17,7 +28,7 @@ export async function POST(request: Request) {
     const ip = forwarded ? forwarded.split(",")[0].trim() : "unknown"
 
     // Rate limiting by IP (prevent mass account creation)
-    const ipRateLimit = checkRateLimit(`signup:ip:${ip}`, 5, 3600000) // 5 signups per hour per IP
+    const ipRateLimit = checkRateLimitSync(`signup:ip:${ip}`, 5, 3600000) // 5 signups per hour per IP
     if (!ipRateLimit.allowed) {
       return NextResponse.json(
         { error: "Too many signup attempts. Please try again later." },
@@ -49,7 +60,7 @@ export async function POST(request: Request) {
     }
 
     // Rate limiting by email (prevent multiple signups with same email)
-    const emailRateLimit = checkRateLimit(`signup:email:${email.toLowerCase()}`, 3, 3600000) // 3 attempts per hour
+    const emailRateLimit = checkRateLimitSync(`signup:email:${email.toLowerCase()}`, 3, 3600000) // 3 attempts per hour
     if (!emailRateLimit.allowed) {
       return NextResponse.json(
         { error: "Too many signup attempts for this email. Please try again later." },

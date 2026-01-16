@@ -1,7 +1,18 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { checkRateLimit } from "@/lib/security"
+import { checkRateLimitSync } from "@/lib/security"
 import { z } from "zod"
+
+// Handle CORS preflight
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    },
+  })
+}
 
 const LoginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -29,7 +40,7 @@ export async function POST(request: Request) {
     const { email, password } = parseResult.data
 
     // Rate limiting by email (prevent brute force on specific accounts)
-    const emailRateLimit = checkRateLimit(`login:email:${email.toLowerCase()}`, 5, 300000) // 5 attempts per 5 min
+    const emailRateLimit = checkRateLimitSync(`login:email:${email.toLowerCase()}`, 5, 300000) // 5 attempts per 5 min
     if (!emailRateLimit.allowed) {
       return NextResponse.json(
         { error: "Too many login attempts. Please try again in a few minutes." },
@@ -38,7 +49,7 @@ export async function POST(request: Request) {
     }
 
     // Rate limiting by IP (prevent distributed attacks)
-    const ipRateLimit = checkRateLimit(`login:ip:${ip}`, 20, 300000) // 20 attempts per 5 min
+    const ipRateLimit = checkRateLimitSync(`login:ip:${ip}`, 20, 300000) // 20 attempts per 5 min
     if (!ipRateLimit.allowed) {
       return NextResponse.json(
         { error: "Too many login attempts from this location. Please try again later." },

@@ -1,4 +1,6 @@
 // Security utilities for the application
+import { Ratelimit } from "@upstash/ratelimit"
+import { Redis } from "@upstash/redis"
 
 // Allowed redirect paths (whitelist approach)
 const ALLOWED_REDIRECT_PATHS = [
@@ -88,16 +90,51 @@ export function validatePassword(password: string): string | null {
 }
 
 /**
- * Rate limiting helper - tracks requests per key
- * For use in API routes
+ * Redis-based rate limiter for serverless environments
+ * Falls back to in-memory rate limiting if Redis is not configured
  */
+
+// Create Redis client only if environment variables are set
+let redis: Redis | null = null
+let ratelimit: Ratelimit | null = null
+
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+  })
+
+  ratelimit = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(10, "60 s"),
+    analytics: true,
+    prefix: "ictus-flow",
+  })
+}
+
+// In-memory fallback for development
 const rateLimitMap = new Map<string, { count: number; timestamp: number }>()
 
-export function checkRateLimit(
+/**
+ * Check rate limit for a given key
+ * Uses Redis in production, falls back to in-memory in development
+ */
+export async function checkRateLimit(
   key: string,
   maxRequests: number = 10,
   windowMs: number = 60000
-): { allowed: boolean; remaining: number; resetIn: number } {
+): Promise<{ allowed: boolean; remaining: number; resetIn: number }> {
+  // Use Redis-based rate limiting if available
+  if (ratelimit) {
+    const { success, remaining, reset } = await ratelimit.limit(key)
+    return {
+      allowed: success,
+      remaining,
+      resetIn: Math.max(0, reset - Date.now()),
+    }
+  }
+
+  // Fallback to in-memory rate limiting (for local development)
   const now = Date.now()
   const record = rateLimitMap.get(key)
 
@@ -120,13 +157,45 @@ export function checkRateLimit(
   }
 }
 
-// Clean up old rate limit entries periodically
-setInterval(() => {
+/**
+ * Synchronous rate limit check (for backward compatibility)
+ * Uses in-memory only - prefer async checkRateLimit for production
+ */
+export function checkRateLimitSync(
+  key: string,
+  maxRequests: number = 10,
+  windowMs: number = 60000
+): { allowed: boolean; remaining: number; resetIn: number } {
   const now = Date.now()
-  const windowMs = 60000
-  for (const [key, record] of rateLimitMap.entries()) {
-    if (now - record.timestamp > windowMs * 2) {
-      rateLimitMap.delete(key)
-    }
+  const record = rateLimitMap.get(key)
+
+  if (!record || now - record.timestamp > windowMs) {
+    rateLimitMap.set(key, { count: 1, timestamp: now })
+    return { allowed: true, remaining: maxRequests - 1, resetIn: windowMs }
   }
-}, 60000)
+
+  if (record.count >= maxRequests) {
+    const resetIn = windowMs - (now - record.timestamp)
+    return { allowed: false, remaining: 0, resetIn }
+  }
+
+  record.count++
+  return {
+    allowed: true,
+    remaining: maxRequests - record.count,
+    resetIn: windowMs - (now - record.timestamp),
+  }
+}
+
+// Clean up old in-memory rate limit entries periodically (for development)
+if (typeof setInterval !== 'undefined') {
+  setInterval(() => {
+    const now = Date.now()
+    const windowMs = 60000
+    for (const [key, record] of rateLimitMap.entries()) {
+      if (now - record.timestamp > windowMs * 2) {
+        rateLimitMap.delete(key)
+      }
+    }
+  }, 60000)
+}
